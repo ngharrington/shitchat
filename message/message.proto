@@ -5,7 +5,7 @@ package message;
 option go_package = "github.com/ngharrington/shitchat/message";
 
 service MessageService {
-  rpc SendMessage (SendMessageRequest) returns (SendMessageResponse);
+  rpc Broadcast(stream SendMessageRequest) returns (stream SendMessageResponse);
 }
 
 message SendMessageRequest {
@@ -13,5 +13,5 @@ message SendMessageRequest {
 }
 
 message SendMessageResponse {
-  string status = 1;
+  string text = 1;
 }

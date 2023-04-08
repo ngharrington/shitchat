@@ -1,32 +1,74 @@
 package main
 
 import (
+	"bufio"
 	"context"
+	"flag"
+	"fmt"
 	"log"
-	"time"
+	"os"
+	"strings"
+	"sync"
 
 	"github.com/ngharrington/shitchat/message"
-
 	"google.golang.org/grpc"
 )
 
 func main() {
-	cc, err := grpc.Dial("localhost:50051", grpc.WithInsecure())
+	hostname := flag.String("hostname", "localhost", "The server hostname")
+	port := flag.String("port", "50051", "The server port")
+	flag.Parse()
+
+	address := fmt.Sprintf("%s:%s", *hostname, *port)
+
+	conn, err := grpc.Dial(address, grpc.WithInsecure())
 	if err != nil {
 		log.Fatalf("Could not connect: %v", err)
 	}
-	defer cc.Close()
+	defer conn.Close()
 
-	c := message.NewMessageServiceClient(cc)
+	client := message.NewMessageServiceClient(conn)
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-
-	res, err := c.SendMessage(ctx, &message.SendMessageRequest{
-		Text: "Hello, gRPC!",
-	})
+	stream, err := client.Broadcast(context.Background())
 	if err != nil {
-		log.Fatalf("Error sending message: %v", err)
+		log.Fatalf("Error opening stream: %v", err)
 	}
-	log.Println("Server response:", res.GetStatus())
+
+	reader := bufio.NewReader(os.Stdin)
+
+	wg := sync.WaitGroup{}
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			res, err := stream.Recv()
+			if err != nil {
+				log.Fatalf("Error receiving message: %v", err)
+			}
+			fmt.Println("Received:", res.GetText())
+		}
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			msg, _ := inputMessage(reader)
+			if err := stream.Send(&message.SendMessageRequest{Text: msg}); err != nil {
+				log.Fatalf("Error sending message: %v", err)
+			}
+		}
+	}()
+
+	wg.Wait()
+}
+
+func inputMessage(reader *bufio.Reader) (string, error) {
+	fmt.Print("Enter message: ")
+	msg, err := reader.ReadString('\n')
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(msg), nil
 }
