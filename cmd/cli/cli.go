@@ -6,15 +6,17 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"strings"
 
 	"google.golang.org/grpc"
 
+	"github.com/jroimartin/gocui"
 	pb "github.com/ngharrington/shitchat/message"
 )
 
-func main() {
+func run() {
 	var history []string
 	var recent string
 
@@ -79,4 +81,66 @@ func main() {
 			continue
 		}
 	}
+}
+
+var counter int
+
+func main() {
+	g, err := gocui.NewGui(gocui.OutputNormal)
+	if err != nil {
+		log.Panicln(err)
+	}
+	defer g.Close()
+
+	g.SetManagerFunc(layout)
+
+	if err := g.SetKeybinding("", gocui.KeyCtrlC, gocui.ModNone, quit); err != nil {
+		log.Panicln(err)
+	}
+
+	if err := g.SetKeybinding("message", gocui.KeyEnter, gocui.ModNone, handleMessage(g)); err != nil {
+		log.Panicln(err)
+	}
+
+	if err := g.MainLoop(); err != nil && err != gocui.ErrQuit {
+		log.Panicln(err)
+	}
+}
+
+func layout(g *gocui.Gui) error {
+	maxX, maxY := g.Size()
+	if v, err := g.SetView("history", 1, 1, maxX-1, maxY-5); err != nil {
+		if err != gocui.ErrUnknownView {
+			return err
+		}
+		fmt.Fprint(v, "CHAT HISTORY\n\n")
+	}
+	if v, err := g.SetView("message", 1, maxY-4, maxX-1, maxY-1); err != nil {
+		if err != gocui.ErrUnknownView {
+			return err
+		}
+		v.Editable = true
+		v.Wrap = true
+		if _, err := g.SetCurrentView("message"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func handleMessage(g *gocui.Gui) func(*gocui.Gui, *gocui.View) error {
+	return func(_ *gocui.Gui, v *gocui.View) error {
+		message := v.Buffer()
+		v.Clear()
+		v.SetCursor(0, 0)
+		if message != "" {
+			historyView, _ := g.View("history")
+			fmt.Fprintln(historyView, message)
+		}
+		return nil
+	}
+}
+
+func quit(g *gocui.Gui, v *gocui.View) error {
+	return gocui.ErrQuit
 }
