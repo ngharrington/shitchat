@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package message;
+
+option go_package = "github.com/ngharrington/shitchat/message";
+
+service MessageService {
+  rpc SendMessage (SendMessageRequest) returns (SendMessageResponse);
+}
+
+message SendMessageRequest {
+  string text = 1;
+}
+
+message SendMessageResponse {
+  string status = 1;
+}
