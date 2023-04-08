@@ -7,7 +7,7 @@ protogen:
 
 
 client:
-	go build -o dist/client cmd/client/client.go
+	go build -o dist/cli cmd/cli/cli.go
 
 server:
 	go build -o dist/server cmd/server/server.go
