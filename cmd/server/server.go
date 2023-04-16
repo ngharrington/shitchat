@@ -27,6 +27,7 @@ func (s *server) Broadcast(stream message.MessageService_BroadcastServer) error 
 
 	for {
 		msg, err := stream.Recv()
+		fmt.Println(msg)
 		if err != nil {
 			s.mu.Lock()
 			delete(s.clients, clientID)

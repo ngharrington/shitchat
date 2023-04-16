@@ -9,12 +9,22 @@ import (
 	"log"
 	"os"
 	"strings"
+	"time"
 
 	"google.golang.org/grpc"
 
 	"github.com/jroimartin/gocui"
 	pb "github.com/ngharrington/shitchat/message"
 )
+
+func createClient(host string, port uint64) (pb.MessageServiceClient, error) {
+	conn, err := grpc.Dial(fmt.Sprintf("%s:%d", host, port), grpc.WithInsecure())
+	if err != nil {
+		return nil, err
+	}
+	client := pb.NewMessageServiceClient(conn)
+	return client, nil
+}
 
 func run() {
 	var history []string
@@ -84,6 +94,15 @@ func run() {
 }
 
 func main() {
+	client, err := createClient("localhost", 50051)
+	if err != nil {
+		log.Panic(err)
+	}
+	stream, err := client.Broadcast(context.Background())
+	if err != nil {
+		fmt.Println("Error receiving messages from server:", err)
+		return
+	}
 	g, err := gocui.NewGui(gocui.OutputNormal)
 	if err != nil {
 		log.Panicln(err)
@@ -96,9 +115,20 @@ func main() {
 		log.Panicln(err)
 	}
 
-	if err := g.SetKeybinding("message", gocui.KeyEnter, gocui.ModNone, handleMessage(g)); err != nil {
+	if err := g.SetKeybinding("message", gocui.KeyEnter, gocui.ModNone, handleMessage(g, stream)); err != nil {
 		log.Panicln(err)
 	}
+
+	go func() {
+		for {
+			time.Sleep(3 * time.Second)
+			g.Update(func(g *gocui.Gui) error {
+				historyView, _ := g.View("history")
+				fmt.Fprintln(historyView, "Hey")
+				return nil
+			})
+		}
+	}()
 
 	if err := g.MainLoop(); err != nil && err != gocui.ErrQuit {
 		log.Panicln(err)
@@ -126,12 +156,13 @@ func layout(g *gocui.Gui) error {
 	return nil
 }
 
-func handleMessage(g *gocui.Gui) func(*gocui.Gui, *gocui.View) error {
+func handleMessage(g *gocui.Gui, stream pb.MessageService_BroadcastClient) func(*gocui.Gui, *gocui.View) error {
 	return func(_ *gocui.Gui, v *gocui.View) error {
 		message := strings.TrimSpace(v.Buffer())
 		v.Clear()
 		v.SetCursor(0, 0)
 		if message != "" {
+			stream.Send(&pb.SendMessageRequest{Text: message})
 			historyView, _ := g.View("history")
 			fmt.Fprintln(historyView, message)
 
