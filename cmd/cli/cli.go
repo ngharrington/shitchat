@@ -83,8 +83,6 @@ func run() {
 	}
 }
 
-var counter int
-
 func main() {
 	g, err := gocui.NewGui(gocui.OutputNormal)
 	if err != nil {
@@ -130,12 +128,22 @@ func layout(g *gocui.Gui) error {
 
 func handleMessage(g *gocui.Gui) func(*gocui.Gui, *gocui.View) error {
 	return func(_ *gocui.Gui, v *gocui.View) error {
-		message := v.Buffer()
+		message := strings.TrimSpace(v.Buffer())
 		v.Clear()
 		v.SetCursor(0, 0)
 		if message != "" {
 			historyView, _ := g.View("history")
 			fmt.Fprintln(historyView, message)
+
+			// Scroll the history view
+			_, maxY := historyView.Size()
+			linesInBuffer := len(historyView.BufferLines())
+			if linesInBuffer > maxY {
+				_, err := historyView.Line(linesInBuffer - maxY)
+				if err == nil {
+					historyView.SetOrigin(0, linesInBuffer-maxY)
+				}
+			}
 		}
 		return nil
 	}
