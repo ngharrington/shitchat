@@ -5,11 +5,12 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"io/ioutil"
 	"log"
-	"os"
 	"path/filepath"
 )
 
@@ -21,21 +22,13 @@ type InMemoryAuthenticator struct {
 	users map[string]*rsa.PublicKey
 }
 
-func NewInMemoryAuthenticator() *InMemoryAuthenticator {
+func NewInMemoryAuthenticator(authDir string) *InMemoryAuthenticator {
 	// Here we hardcode users and their keys
-	users, err := readFromSshDir()
+	users, err := readUsersFromDir(authDir)
 	if err != nil {
+		fmt.Println(err)
 		log.Panicln("Error creating in memory authenticator")
 	}
-
-	// Note: For the sake of example, let's suppose we have the public keys.
-	//       In real situation, you'd want to load these keys from a secure source
-	user1PublicKey := &rsa.PublicKey{ /* user 1's public key data */ }
-	user2PublicKey := &rsa.PublicKey{ /* user 2's public key data */ }
-
-	users["user1"] = user1PublicKey
-	users["user2"] = user2PublicKey
-
 	return &InMemoryAuthenticator{users: users}
 }
 
@@ -51,49 +44,55 @@ func (a *InMemoryAuthenticator) Authenticate(username, signature string, msg []b
 	hashedMsg := hash.Sum(nil)
 
 	// Convert the signature from a string back to a byte slice for verification
-	signatureBytes := []byte(signature)
+	signatureBytes, err := base64.StdEncoding.DecodeString(signature)
+	if err != nil {
+		return false, err // Handle this error properly
+	}
 
 	// Verify the signature
-	err := rsa.VerifyPKCS1v15(pubKey, crypto.SHA256, hashedMsg, signatureBytes)
+	err = rsa.VerifyPKCS1v15(pubKey, crypto.SHA256, hashedMsg, signatureBytes)
 	if err != nil {
+		fmt.Println("username:", username)
+		fmt.Println("hashed message:", hashedMsg)
+		fmt.Println("decoded signature:", signatureBytes)
 		return false, nil // The authentication failed, but this is not an 'error' per se
 	}
 
 	return true, nil
 }
 
-func readFromSshDir() (map[string]*rsa.PublicKey, error) {
+func readUsersFromDir(dir string) (map[string]*rsa.PublicKey, error) {
 	users := make(map[string]*rsa.PublicKey)
-	sshDir, err := os.UserHomeDir()
-	if err != nil {
-		return nil, err
-	}
 
-	sshDir = filepath.Join(sshDir, ".ssh")
-
-	files, err := ioutil.ReadDir(sshDir)
+	files, err := ioutil.ReadDir(dir)
 	if err != nil {
 		return nil, err
 	}
 
 	for _, file := range files {
 		if filepath.Ext(file.Name()) == ".pub" {
-			content, err := ioutil.ReadFile(filepath.Join(sshDir, file.Name()))
+			content, err := ioutil.ReadFile(filepath.Join(dir, file.Name()))
 			if err != nil {
 				return nil, err
 			}
 
 			block, _ := pem.Decode(content)
 			if block == nil || block.Type != "PUBLIC KEY" {
+				log.Printf("Could not decode %s", file.Name())
 				continue
 			}
 
-			publicKey, err := x509.ParsePKCS1PublicKey(block.Bytes)
+			publicKey, err := x509.ParsePKIXPublicKey(block.Bytes)
 			if err != nil {
 				return nil, err
 			}
 
-			users[file.Name()[:len(file.Name())-4]] = publicKey
+			rsaPublicKey, ok := publicKey.(*rsa.PublicKey)
+			if !ok {
+				return nil, errors.New("invalid RSA public key")
+			}
+
+			users[file.Name()[:len(file.Name())-4]] = rsaPublicKey
 		}
 	}
 	return users, nil

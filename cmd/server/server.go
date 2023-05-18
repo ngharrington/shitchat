@@ -6,7 +6,7 @@ import (
 	"net"
 	"sync"
 
-	"github.com/ngharrington/shitchat/cmd/internal"
+	"github.com/ngharrington/shitchat/internal"
 	"github.com/ngharrington/shitchat/message"
 	"google.golang.org/grpc"
 )
@@ -37,10 +37,16 @@ func (s *server) Broadcast(stream message.MessageService_BroadcastServer) error 
 			s.mu.Unlock()
 			return err
 		}
+		data := []byte(msg.Text)
+		auth, err := s.authenticator.Authenticate(msg.Username, msg.Signature, data)
+		if err != nil || !auth {
+			fmt.Println(err)
+			log.Println("error authenticating user")
+		}
 
 		s.mu.Lock()
 		for _, client := range s.clients {
-			client.Send(&message.SendMessageResponse{Text: fmt.Sprintf("%s: %s", clientID, msg.GetText())})
+			client.Send(&message.SendMessageResponse{Text: fmt.Sprintf("%s: %s", msg.Username, msg.GetText())})
 		}
 		s.mu.Unlock()
 	}
@@ -53,7 +59,8 @@ func main() {
 	}
 
 	s := grpc.NewServer()
-	message.RegisterMessageServiceServer(s, &server{clients: make(map[string]message.MessageService_BroadcastServer)})
+	auth := internal.NewInMemoryAuthenticator("/home/neal/workspace/shitchat/scratch/keys/")
+	message.RegisterMessageServiceServer(s, &server{clients: make(map[string]message.MessageService_BroadcastServer), authenticator: auth})
 
 	log.Println("Server is running on port 50051")
 	if err := s.Serve(lis); err != nil {
