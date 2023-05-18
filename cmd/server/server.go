@@ -6,6 +6,7 @@ import (
 	"net"
 	"sync"
 
+	"github.com/ngharrington/shitchat/internal"
 	"github.com/ngharrington/shitchat/message"
 	"google.golang.org/grpc"
 )
@@ -13,9 +14,10 @@ import (
 type server struct {
 	message.UnimplementedMessageServiceServer
 
-	mu       sync.Mutex
-	clients  map[string]message.MessageService_BroadcastServer
-	clientID int
+	clients       map[string]message.MessageService_BroadcastServer
+	clientID      int
+	mu            sync.Mutex
+	authenticator internal.Authenticator
 }
 
 func (s *server) Broadcast(stream message.MessageService_BroadcastServer) error {
@@ -26,6 +28,8 @@ func (s *server) Broadcast(stream message.MessageService_BroadcastServer) error 
 	s.mu.Unlock()
 
 	for {
+		// TODO: this error handling seems like it is meant to handle the initial connection
+		// not sure maybe better handling on the other loops?
 		msg, err := stream.Recv()
 		if err != nil {
 			s.mu.Lock()
@@ -33,13 +37,16 @@ func (s *server) Broadcast(stream message.MessageService_BroadcastServer) error 
 			s.mu.Unlock()
 			return err
 		}
+		data := []byte(msg.Text)
+		auth, err := s.authenticator.Authenticate(msg.Username, msg.Signature, data)
+		if err != nil || !auth {
+			fmt.Println(err)
+			log.Println("error authenticating user")
+		}
 
 		s.mu.Lock()
-		for id, client := range s.clients {
-			if id == clientID {
-				continue
-			}
-			client.Send(&message.SendMessageResponse{Text: fmt.Sprintf("%s: %s", clientID, msg.GetText())})
+		for _, client := range s.clients {
+			client.Send(&message.SendMessageResponse{Text: fmt.Sprintf("%s: %s", msg.Username, msg.GetText())})
 		}
 		s.mu.Unlock()
 	}
@@ -52,7 +59,8 @@ func main() {
 	}
 
 	s := grpc.NewServer()
-	message.RegisterMessageServiceServer(s, &server{clients: make(map[string]message.MessageService_BroadcastServer)})
+	auth := internal.NewInMemoryAuthenticator("/home/neal/workspace/shitchat/scratch/keys/")
+	message.RegisterMessageServiceServer(s, &server{clients: make(map[string]message.MessageService_BroadcastServer), authenticator: auth})
 
 	log.Println("Server is running on port 50051")
 	if err := s.Serve(lis); err != nil {
