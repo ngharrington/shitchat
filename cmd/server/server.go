@@ -6,6 +6,7 @@ import (
 	"net"
 	"sync"
 
+	"github.com/ngharrington/shitchat/cmd/internal"
 	"github.com/ngharrington/shitchat/message"
 	"google.golang.org/grpc"
 )
@@ -13,9 +14,10 @@ import (
 type server struct {
 	message.UnimplementedMessageServiceServer
 
-	mu       sync.Mutex
-	clients  map[string]message.MessageService_BroadcastServer
-	clientID int
+	clients       map[string]message.MessageService_BroadcastServer
+	clientID      int
+	mu            sync.Mutex
+	authenticator internal.Authenticator
 }
 
 func (s *server) Broadcast(stream message.MessageService_BroadcastServer) error {
@@ -26,8 +28,9 @@ func (s *server) Broadcast(stream message.MessageService_BroadcastServer) error 
 	s.mu.Unlock()
 
 	for {
+		// TODO: this error handling seems like it is meant to handle the initial connection
+		// not sure maybe better handling on the other loops?
 		msg, err := stream.Recv()
-		fmt.Println(msg)
 		if err != nil {
 			s.mu.Lock()
 			delete(s.clients, clientID)
@@ -36,10 +39,7 @@ func (s *server) Broadcast(stream message.MessageService_BroadcastServer) error 
 		}
 
 		s.mu.Lock()
-		for id, client := range s.clients {
-			if id == clientID {
-				continue
-			}
+		for _, client := range s.clients {
 			client.Send(&message.SendMessageResponse{Text: fmt.Sprintf("%s: %s", clientID, msg.GetText())})
 		}
 		s.mu.Unlock()

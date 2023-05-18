@@ -3,16 +3,21 @@ package main
 import (
 	"bufio"
 	"context"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/pem"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"os"
 	"strings"
-	"time"
 
 	"google.golang.org/grpc"
 
+	"github.com/google/uuid"
 	"github.com/jroimartin/gocui"
 	pb "github.com/ngharrington/shitchat/message"
 )
@@ -119,18 +124,7 @@ func main() {
 		log.Panicln(err)
 	}
 
-	go func() {
-		i := 0
-		for {
-			time.Sleep(3 * time.Second)
-			g.Update(func(g *gocui.Gui) error {
-				historyView, _ := g.View("history")
-				fmt.Fprintf(historyView, "Hey %d\n", i)
-				i += 1
-				return nil
-			})
-		}
-	}()
+	go listenForMessages(g, stream)
 
 	if err := g.MainLoop(); err != nil && err != gocui.ErrQuit {
 		log.Panicln(err)
@@ -160,14 +154,34 @@ func layout(g *gocui.Gui) error {
 
 func handleMessage(g *gocui.Gui, stream pb.MessageService_BroadcastClient) func(*gocui.Gui, *gocui.View) error {
 	return func(_ *gocui.Gui, v *gocui.View) error {
+		id := uuid.New().String()
 		message := strings.TrimSpace(v.Buffer())
+		// signature, err := readSignatureFromFile("/home/neal/.ssh/google_compute_engine")
+		// if err != nil {
+		// 	return err
+		// }
 		v.Clear()
 		v.SetCursor(0, 0)
 		if message != "" {
-			stream.Send(&pb.SendMessageRequest{Text: message})
-			historyView, _ := g.View("history")
-			fmt.Fprintln(historyView, message)
+			stream.Send(&pb.SendMessageRequest{Id: id, Text: message})
+		}
+		return nil
+	}
+}
 
+func listenForMessages(g *gocui.Gui, stream pb.MessageService_BroadcastClient) {
+	for {
+		msg, err := stream.Recv()
+		if err == io.EOF {
+			return
+		}
+		if err != nil {
+			fmt.Println("Error receiving message from server:", err)
+			return
+		}
+		g.Update(func(g *gocui.Gui) error {
+			historyView, _ := g.View("history")
+			fmt.Fprintln(historyView, msg.Text)
 			// Scroll the history view
 			_, maxY := historyView.Size()
 			linesInBuffer := len(historyView.BufferLines())
@@ -177,9 +191,25 @@ func handleMessage(g *gocui.Gui, stream pb.MessageService_BroadcastClient) func(
 					historyView.SetOrigin(0, linesInBuffer-maxY)
 				}
 			}
-		}
-		return nil
+			return nil
+		})
 	}
+}
+
+func readSignatureFromFile(filepath string) (*rsa.PrivateKey, error) {
+	content, err := ioutil.ReadFile(filepath)
+	if err != nil {
+		return nil, err
+	}
+	block, _ := pem.Decode(content)
+	if block == nil {
+		return nil, errors.New("no valid PEM data found")
+	}
+	privateKey, err := x509.ParsePKCS1PrivateKey(block.Bytes)
+	if err != nil {
+		return nil, err
+	}
+	return privateKey, nil
 }
 
 func quit(g *gocui.Gui, v *gocui.View) error {

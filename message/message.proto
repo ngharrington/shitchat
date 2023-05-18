@@ -9,9 +9,13 @@ service MessageService {
 }
 
 message SendMessageRequest {
-  string text = 1;
+  string id = 1;
+  string text = 2;
+  string username = 3;
+  string signature = 4;
 }
 
 message SendMessageResponse {
-  string text = 1;
+  string id = 1;
+  string text = 2;
 }
