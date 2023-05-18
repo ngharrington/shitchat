@@ -120,11 +120,13 @@ func main() {
 	}
 
 	go func() {
+		i := 0
 		for {
 			time.Sleep(3 * time.Second)
 			g.Update(func(g *gocui.Gui) error {
 				historyView, _ := g.View("history")
-				fmt.Fprintln(historyView, "Hey")
+				fmt.Fprintf(historyView, "Hey %d\n", i)
+				i += 1
 				return nil
 			})
 		}
